@@ -1,0 +1,100 @@
+description: "Tests for junit-fix-failing-tests — validates the skill diagnoses
+  and fixes failing JUnit tests"
+
+prompts:
+  - label: junit-fix-failing-tests-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to fix failing tests or compilation errors in a given JUnit test class.\n\nSteps:\n1. Read the tested class (remove 'Test' suffix from the argument to find it) and note its imports, classes used, and responsibility\n2. Read the test class\n3. Read pom.xml to identify test dependencies\n4. Run: mvn test -s ${MAVEN_SETTINGS} -Dtest=<ClassName>\n5. If the class does not compile or tests fail, correct it (without degrading test quality and intention) and repeat step 4. Stop when all tests pass.\n\nHard rules:\n- Follow instructions and commands to the letter\n- Do NOT modify the tested class\n- Tests must be COMPILABLE\n- Tests must PASS (without deleting existing tests or assertions)\n- Test quality and intention MUST NOT be degraded during fixes\n- Fixes must not introduce Sonar warnings"
+        },
+        {
+          "role": "user",
+          "content": "Fix the failing tests in the following test class:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1024
+
+tests:
+  - description: "Fixes a NullPointerException caused by missing mock setup"
+    vars:
+      ARGUMENTS: |
+        // NotificationServiceTest.java
+        // Current failure: NullPointerException in sendEmail_whenUserExists_sendsMessage
+        // Error: repo.findById(1L) returns null because mock is not configured
+
+        @ExtendWith(MockitoExtension.class)
+        class NotificationServiceTest {
+            @Mock UserRepository repo;
+            @Mock EmailClient emailClient;
+            @InjectMocks NotificationService service;
+
+            @Test
+            void sendEmail_whenUserExists_sendsMessage() {
+                // Given — mock not configured, will return null
+                User user = repo.findById(1L); // NPE here
+                // When
+                service.sendEmail(1L, "Hello");
+                // Then
+                verify(emailClient).send(user.getEmail(), "Hello");
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must correctly diagnose the NullPointerException as being
+          caused by a missing mock setup
+          (when(repo.findById(1L)).thenReturn(...) is absent). The fix must add
+          the missing mock setup using Mockito's when().thenReturn(). The
+          response must NOT delete the assertion or reduce test quality.
+      - type: contains-any
+        value:
+          - when(
+          - thenReturn
+          - mock
+          - NPE
+          - NullPointer
+          - configure
+
+  - description: "Fixes a compilation error caused by wrong import"
+    vars:
+      ARGUMENTS: |
+        // InvoiceServiceTest.java
+        // Compilation error: cannot find symbol — class Assertions (wrong import)
+
+        import org.junit.Assert; // wrong — should be AssertJ or JUnit 5 Assertions
+        import static org.junit.Assert.assertEquals;
+
+        @ExtendWith(MockitoExtension.class)
+        class InvoiceServiceTest {
+            @Mock InvoiceRepository repo;
+            @InjectMocks InvoiceService service;
+
+            @Test
+            void generateInvoice_whenValidOrder_returnsInvoice() {
+                when(repo.findById(1L)).thenReturn(Optional.of(new Order(1L)));
+                Invoice result = service.generateInvoice(1L);
+                assertEquals("INV-001", result.getNumber()); // compiles with wrong assertion style
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must identify the import issue (mixing JUnit 4 style with
+          JUnit 5) and propose the correct fix by updating imports to use
+          AssertJ (assertThat) or JUnit 5 Assertions. The test intention and
+          logic must be preserved.
+      - type: contains-any
+        value:
+          - import
+          - AssertJ
+          - assertThat
+          - org.assertj
+          - JUnit 5
+          - compilation

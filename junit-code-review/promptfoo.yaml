@@ -1,0 +1,96 @@
+description: "Tests for junit-code-review — validates the skill correctly
+  reviews a JUnit test class"
+
+prompts:
+  - label: junit-code-review-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer performing code reviews on JUnit test classes. When reviewing a test class, you must evaluate:\n- All public and protected methods are tested\n- Assertions are always present to verify method outputs\n- Mocking and stubs are used appropriately\n- Tests are small and focused (one behavior per test)\n- Tests are deterministic (no external dependencies)\n- Tests follow the AAA pattern (Arrange, Act, Assert)\n- Descriptive test names using given_when_then convention\n- Edge cases and error conditions are covered\n- No deprecated API usage\n- Tests are readable and maintainable\n\nAfter the review, provide constructive feedback: positive points, negative points, what is missing, and what must be corrected. Then offer to apply the suggested corrections.\n\nHard rules:\n- NEVER modify the tested class\n- Suggestions must not introduce Sonar warnings or compilation errors\n- Suggestions must not degrade test quality"
+        },
+        {
+          "role": "user",
+          "content": "Perform a code review on the following JUnit test class:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1024
+
+tests:
+  - description: "Reviews a test class with missing assertions"
+    vars:
+      ARGUMENTS: |
+        // UserServiceTest.java
+        @ExtendWith(MockitoExtension.class)
+        class UserServiceTest {
+            @Mock UserRepository repo;
+            @InjectMocks UserService service;
+
+            @Test
+            void findUser() {
+                when(repo.findById(1L)).thenReturn(Optional.of(new User(1L, "Alice")));
+                service.findById(1L); // no assertion
+            }
+
+            @Test
+            void t1() {
+                service.save(new User(null, "Bob")); // no assertion, bad name
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The review must identify that assertions are missing (no verify of
+          return values), test names are not descriptive (e.g. 't1'), and at
+          least one positive aspect must be mentioned. The reviewer must offer
+          to apply corrections.
+      - type: contains-any
+        value:
+          - assertion
+          - assert
+          - AAA
+          - naming
+          - descriptive
+          - given_when_then
+
+  - description: "Reviews a well-structured test class and acknowledges quality"
+    vars:
+      ARGUMENTS: |
+        // ProductServiceTest.java
+        @ExtendWith(MockitoExtension.class)
+        class ProductServiceTest {
+            @Mock ProductRepository repo;
+            @InjectMocks ProductService service;
+
+            @Test
+            void findById_whenProductExists_returnsProduct() {
+                // Given
+                Product expected = new Product(1L, "Widget");
+                when(repo.findById(1L)).thenReturn(Optional.of(expected));
+                // When
+                Product result = service.findById(1L);
+                // Then
+                assertThat(result).isEqualTo(expected);
+            }
+
+            @Test
+            void findById_whenProductNotFound_throwsException() {
+                // Given
+                when(repo.findById(99L)).thenReturn(Optional.empty());
+                // When / Then
+                assertThatThrownBy(() -> service.findById(99L))
+                    .isInstanceOf(ProductNotFoundException.class);
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The review must acknowledge the good quality of this test class. It
+          should mention the AAA pattern is followed, names are descriptive,
+          both happy and sad paths are covered, and mocking is correct. Feedback
+          must remain constructive even when the test is good.

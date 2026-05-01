@@ -1,0 +1,57 @@
+description: "Tests for junit-verify-code-coverage — validates the skill runs
+  Jacoco and formats the coverage report"
+
+prompts:
+  - label: junit-verify-code-coverage-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to verify code coverage using Jacoco.\n\nSteps:\n1. Run tests and generate the coverage report using exactly this command:\n   mvn test -s ${MAVEN_SETTINGS} jacoco:report -Dtest=<ClassName>\n2. Create the file /tmp-coverage-<ClassName>.md in the repo root\n3. Run: cat target/site/jacoco/jacoco.csv\n4. Write the Jacoco results in /tmp-coverage-<ClassName>.md using this template:\n\n# Code Coverage Report\n**Class under test:** `<fully.qualified.ClassName>`\n**Test class:** `<TestClassName>`\n**Date:** <date>\n**Branch:** <branch>\n\n## Summary\n| Metric | Covered | Missed | Total | Coverage |\n|--------|---------|--------|-------|----------|\n| Lines | ... | ... | ... | ...% |\n| Branches | ... | ... | ... | ...% |\n| Methods | ... | ... | ... | ...% |\n| Classes | ... | ... | ... | ...% |\n| Instructions | ... | ... | ... | ...% |\n| Complexity | ... | ... | ... | ...% |\n\n## Coverage Status\n> 🟢 Lines: X% | 🟡 Branches: Y% | 🟢 Methods: Z%\n\nHard rules:\n- Do NOT look for the class file location\n- Use ONLY the exact mvn command from step 1\n- Do NOT run any other command"
+        },
+        {
+          "role": "user",
+          "content": "Verify code coverage for the test class: {{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1024
+
+tests:
+  - description: "Describes the correct Maven command and report format"
+    vars:
+      ARGUMENTS: "PaymentServiceTest"
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must describe running the exact Maven command: 'mvn test
+          -s ${MAVEN_SETTINGS} jacoco:report -Dtest=PaymentServiceTest' and then
+          creating a /tmp-coverage-PaymentServiceTest.md file with the coverage
+          table showing Lines, Branches, Methods metrics. The response must NOT
+          run any other command or look for class locations.
+      - type: contains-all
+        value:
+          - jacoco:report
+          - PaymentServiceTest
+          - mvn test
+          - /tmp-coverage
+
+  - description: "Describes the process for a different class"
+    vars:
+      ARGUMENTS: "OrderRepositoryTest"
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must describe running the Jacoco coverage command for
+          OrderRepositoryTest. It must mention creating
+          tmp-coverage-OrderRepositoryTest.md and reading
+          target/site/jacoco/jacoco.csv to populate the coverage table.
+      - type: contains-all
+        value:
+          - OrderRepositoryTest
+          - jacoco.csv
+          - tmp-coverage

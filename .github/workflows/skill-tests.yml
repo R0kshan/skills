@@ -1,0 +1,148 @@
+name: Skill Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*/SKILL.md'
+      - '*/promptfoo.yaml'
+      - '.github/workflows/skill-tests.yml'
+  pull_request:
+    paths:
+      - '*/SKILL.md'
+      - '*/promptfoo.yaml'
+      - '.github/workflows/skill-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# JOBS
+# ──────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. Discover every skill folder that contains a promptfoo.yaml
+  # ---------------------------------------------------------------------------
+  discover:
+    name: Discover Skills
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find skills with promptfoo config
+        id: set-matrix
+        run: |
+          SKILLS=$(find . -maxdepth 2 -name "promptfoo.yaml" \
+            | sed 's|^\./||' \
+            | sed 's|/promptfoo.yaml||' \
+            | sort \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=${SKILLS}" >> $GITHUB_OUTPUT
+          echo "Discovered skills: ${SKILLS}"
+
+  # ---------------------------------------------------------------------------
+  # 2. Run promptfoo eval for each skill in parallel
+  # ---------------------------------------------------------------------------
+  test:
+    name: "Test / ${{ matrix.skill }}"
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        skill: ${{ fromJson(needs.discover.outputs.matrix) }}
+      fail-fast: false   # let every skill run even if one fails
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache npm global packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-promptfoo-${{ hashFiles('**/promptfoo.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-promptfoo-
+
+      - name: Install promptfoo
+        run: npm install -g promptfoo@latest
+
+      - name: Evaluate ${{ matrix.skill }}
+        id: eval
+        working-directory: ${{ matrix.skill }}
+        run: |
+          promptfoo eval \
+            --config promptfoo.yaml \
+            --output results.json \
+            --no-cache \
+            --max-concurrency 1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.skill }}
+          path: ${{ matrix.skill }}/results.json
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 3. Aggregate results into a single job summary
+  # ---------------------------------------------------------------------------
+  summary:
+    name: Test Summary
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: false
+
+      - name: Generate step summary
+        run: |
+          echo "# 🧪 Skill Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Skill | ✅ Pass | ❌ Fail | 🔢 Total |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+
+          total_pass=0
+          total_fail=0
+
+          for artifact_dir in results/results-*/; do
+            skill="${artifact_dir#results/results-}"
+            skill="${skill%/}"
+            result_file="${artifact_dir}results.json"
+
+            if [ -f "$result_file" ]; then
+              pass=$(jq '.stats.successes // 0' "$result_file" 2>/dev/null || echo 0)
+              fail=$(jq '.stats.failures // 0' "$result_file" 2>/dev/null || echo 0)
+              total=$(( pass + fail ))
+              status="✅"
+              if [ "$fail" -gt 0 ] 2>/dev/null; then status="❌"; fi
+              echo "| ${status} \`${skill}\` | ${pass} | ${fail} | ${total} |" >> $GITHUB_STEP_SUMMARY
+              total_pass=$(( total_pass + pass ))
+              total_fail=$(( total_fail + fail ))
+            else
+              echo "| ⚠️ \`${skill}\` | — | — | — |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Grand total — ✅ ${total_pass} passed &nbsp;|&nbsp; ❌ ${total_fail} failed**" >> $GITHUB_STEP_SUMMARY

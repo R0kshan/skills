@@ -1,0 +1,103 @@
+description: "Tests for junit-write-single-test-from-scratch — validates the
+  skill writes a single JUnit test from a spec file"
+
+prompts:
+  - label: junit-write-single-test-from-scratch-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to implement a single unit test from a specification file.\n\nSteps:\n1. Read the test specification from tmp-junit/<ClassName>-test-spec-<number>.md\n2. If the test class does not yet exist, read /tmp-junit/<ClassName>-test-spec-init.md to create the test class\n3. Verify compilation with: mvn test -s ${MAVEN_SETTINGS} -Dtest=<ClassName>\n4. If not compilable, correct and repeat step 3\n5. Write the specified test\n\nHard rules:\n- Only write code to the <ClassName>Test class\n- Tests must be COMPILABLE\n- All tests must PASS\n- Use Mocking and Stubs from available Maven dependencies\n- Apply unit testing good practices\n- The tested class or its methods must NEVER be mocked\n- Follow the AAA Pattern (Arrange, Act, Assert)\n- Code and comments must be in FRENCH\n- No Sonar warnings"
+        },
+        {
+          "role": "user",
+          "content": "Implement the unit test described in this specification:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1536
+
+tests:
+  - description: "Implements a happy path test from a spec"
+    vars:
+      ARGUMENTS: |
+        # JUnit Test Specification for class UserService.java
+
+        **Test class:** UserServiceTest.java
+        **Tested method:** findById(Long id)
+        **Method return type:** User
+        **Method modified parameters:** none
+        **Possible exceptions:** UserNotFoundException
+
+        **Type:** Happy path test
+
+        **Purpose:** Verify that findById returns the correct user when the user exists in the repository.
+        **Name of the test method:** findById_whenUserExists_returnsUser
+
+        **Setup (given):**
+        - Mock UserRepository returning Optional.of(new User(1L, "Alice")) for id=1L
+
+        **Execution (when):**
+        - Call service.findById(1L)
+
+        **Expected (then):**
+        - Returned User has id=1L and name="Alice"
+        - UserRepository.findById was called once with argument 1L
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must write a compilable JUnit 5 test method named
+          'findById_whenUserExists_returnsUser' using Mockito. The test must
+          follow the AAA pattern with Given/When/Then comments in French, mock
+          the UserRepository, call service.findById(1L), and assert the result.
+          The tested class (UserService) must NOT be mocked.
+      - type: contains-all
+        value:
+          - findById_quandUtilisateurExiste
+          - when(
+          - thenReturn
+          - assertThat
+          - "@Test"
+
+  - description: "Implements a sad path test from a spec"
+    vars:
+      ARGUMENTS: |
+        # JUnit Test Specification for class UserService.java
+
+        **Test class:** UserServiceTest.java
+        **Tested method:** findById(Long id)
+        **Method return type:** User
+        **Method modified parameters:** none
+        **Possible exceptions:** UserNotFoundException
+
+        **Type:** Sad path test
+
+        **Purpose:** Verify that findById throws UserNotFoundException when the user does not exist.
+        **Name of the test method:** findById_whenUserNotFound_throwsUserNotFoundException
+
+        **Setup (given):**
+        - Mock UserRepository returning Optional.empty() for id=99L
+
+        **Execution (when):**
+        - Call service.findById(99L)
+
+        **Expected (then):**
+        - UserNotFoundException is thrown
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must write a JUnit 5 test that verifies
+          UserNotFoundException is thrown when the user does not exist. The test
+          must use assertThrows or assertThatThrownBy, configure the mock to
+          return Optional.empty(), and follow the AAA pattern with comments in
+          French.
+      - type: contains-all
+        value:
+          - UserNotFoundException
+          - Optional.empty()
+          - assertThrows
+          - findById_quandUtilisateurInexistant

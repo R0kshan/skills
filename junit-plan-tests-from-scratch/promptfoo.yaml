@@ -1,0 +1,94 @@
+description: "Tests for junit-plan-tests-from-scratch — validates the skill
+  generates a JUnit test plan with proper specifications"
+
+prompts:
+  - label: junit-plan-tests-from-scratch-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to generate a JUnit test plan (in natural language, NO code) for a given Java class that has no existing test class.\n\nFor each public and protected method, write test specifications covering:\n- Happy path tests (one per happy path)\n- Sad path tests (one per sad path)\n- Edge cases and error conditions\n\nEach test specification must follow this template:\n\n# JUnit Test Specification for class <ClassName>.java\n**Test class:** <ClassName>Test.java\n**Tested method:** <method name>\n**Method return type:** <return type>\n**Method modified parameters:** <parameters modified>\n**Possible exceptions:** <list of possible exceptions>\n**Type:** <Happy or Sad path> test\n**Purpose:** <purpose>\n**Name of the test method:** <given_when_then>\n**Setup (given):** <list values, mocks or stubs required>\n**Execution (when):** <what must be done>\n**Expected (then):** <actual results to verify or exceptions thrown>\n\nAlso produce an initialization spec file listing all required mocks, stubs, and variables.\n\nHard rules:\n- Do NOT write any code\n- Do NOT create or modify any Java class\n- Every public or protected method must be tested\n- Private methods must NOT be tested directly\n- Return or modified values must always be verified"
+        },
+        {
+          "role": "user",
+          "content": "Generate a test plan for:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 2048
+
+tests:
+  - description: "Generates a test plan for a simple service class"
+    vars:
+      ARGUMENTS: |
+        // DiscountService.java
+        public class DiscountService {
+            private static final double MAX_DISCOUNT = 0.50;
+            private CustomerRepository customerRepo;
+
+            public double calculateDiscount(Long customerId, double price) {
+                Customer customer = customerRepo.findById(customerId)
+                    .orElseThrow(() -> new CustomerNotFoundException(customerId));
+                double discount = customer.getLoyaltyYears() * 0.05;
+                return Math.min(discount, MAX_DISCOUNT) * price;
+            }
+
+            public boolean isEligible(Long customerId) {
+                return customerRepo.findById(customerId)
+                    .map(c -> c.getLoyaltyYears() > 0)
+                    .orElse(false);
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must contain natural-language test specifications (no
+          code) for both calculateDiscount and isEligible methods. Each
+          specification must include: happy path (valid customer, correct
+          discount), sad path (customer not found exception), and edge case
+          (discount capped at MAX_DISCOUNT). Each spec must follow the template
+          with given/when/then sections and a given_when_then method name.
+      - type: contains-all
+        value:
+          - calculateDiscount
+          - isEligible
+          - given_when
+          - CustomerNotFoundException
+          - Given
+          - When
+          - Then
+
+  - description: "Produces an initialization spec with required mocks"
+    vars:
+      ARGUMENTS: |
+        // ReportService.java
+        public class ReportService {
+            private ReportRepository repo;
+            private PdfGenerator pdfGenerator;
+
+            public byte[] generateReport(String type, LocalDate from, LocalDate to) {
+                List<Record> records = repo.findByTypeAndDateRange(type, from, to);
+                if (records.isEmpty()) throw new NoDataException("No records found");
+                return pdfGenerator.generate(records, type);
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must include an initialization specification file
+          listing: - Mock for ReportRepository - Mock for PdfGenerator - Sample
+          LocalDate values for from/to - Sample record list It must also produce
+          at least one happy path spec (records found, PDF returned) and one sad
+          path spec (empty records, NoDataException thrown). No Java code must
+          appear in the output.
+      - type: contains-all
+        value:
+          - ReportRepository
+          - PdfGenerator
+          - NoDataException
+          - Mock
+          - mock

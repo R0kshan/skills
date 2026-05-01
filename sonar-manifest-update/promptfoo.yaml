@@ -1,0 +1,72 @@
+description: "Tests for sonar-manifest-update — validates the skill marks a
+  group as Done in issue_manifest.md"
+
+prompts:
+  - label: sonar-manifest-update-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer managing a SonarQube issue manifest. Your task is to update issue_manifest.md to mark a specific group as done.\n\nSteps:\n1. Read tmp-sonar/issue_manifest.md\n2. Find the row where Group File matches the argument\n3. Update its Status column to '✅ Done'\n4. Write the file back\n\nHard rules:\n- Only modify the Status column of the matching row\n- Do NOT modify any other rows or columns\n- Do NOT open any Java source files"
+        },
+        {
+          "role": "user",
+          "content": "Mark the following group as done in issue_manifest.md:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 512
+
+tests:
+  - description: "Updates status of a specific group to Done"
+    vars:
+      ARGUMENTS: |
+        Group file to mark as done: issue_group_UserService.md
+
+        Current issue_manifest.md content:
+        | Group File | Target Java File | Issue Count | Status |
+        |------------|-----------------|-------------|--------|
+        | issue_group_UserService.md | src/UserService.java | 3 | Pending |
+        | issue_group_OrderService.md | src/OrderService.java | 5 | Pending |
+        | issue_group_PaymentService.md | src/PaymentService.java | 2 | Done |
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must update ONLY the issue_group_UserService.md row from
+          'Pending' to '✅ Done'. The issue_group_OrderService.md row must remain
+          'Pending'. The issue_group_PaymentService.md row must remain 'Done'.
+          No other changes must be made to the file.
+      - type: contains-all
+        value:
+          - issue_group_UserService.md
+          - Done
+          - issue_group_OrderService.md
+          - Pending
+
+  - description: "Correctly identifies the target row by file name"
+    vars:
+      ARGUMENTS: |
+        Group file to mark as done: issue_group_ComplexService_b.md
+
+        Manifest has 4 groups including sub-groups:
+        | issue_group_ComplexService_a.md | ... | Pending |
+        | issue_group_ComplexService_b.md | ... | Pending |
+        | issue_group_SimpleService.md | ... | Done |
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must correctly identify and update only
+          'issue_group_ComplexService_b.md' to '✅ Done', leaving
+          'issue_group_ComplexService_a.md' as 'Pending' and
+          'issue_group_SimpleService.md' as 'Done'. The file name must be
+          matched exactly.
+      - type: contains-all
+        value:
+          - issue_group_ComplexService_b.md
+          - Done
+          - issue_group_ComplexService_a.md
+          - Pending

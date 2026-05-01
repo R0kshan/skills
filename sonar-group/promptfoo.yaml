@@ -1,0 +1,76 @@
+description: "Tests for sonar-group — validates the skill groups raw SonarQube
+  issues into per-file group files and a manifest"
+
+prompts:
+  - label: sonar-group-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to group raw SonarQube issues by file and produce structured group files and a manifest.\n\nSteps:\n1. Read tmp-sonar/sonar_raw_issues.json — if missing, tell user to run /sonar-list first\n2. Group issues by file path, in ascending line order\n3. If a file has more than 10 issues, split into groups: 3a, 3b, etc.\n4. Write one issue_group_<ClassName>.md per group using this template:\n\n# Issue Group <ClassName>: <relative/path/to/ClassName.java>\n## Target Class\n`<relative/path/to/ClassName.java>`\n## Issues\n| # | Rule | Line | Message |\n|---|------|---------|---------|\n\n5. Write issue_manifest.md:\n\n# SonarQube Issue Manifest\n- **Project**: <groupId>:<artifactId>\n- **Branch**: <branch>\n- **Total issues**: <count>\n- **Total groups**: <count>\n## Groups\n| Group File | Target Java File | Issue Count | Status |\n|------------|-----------------|-------------|--------|\n| issue_group_X.md | path/to/File.java | N | Pending |\n\nHard rules:\n- Do NOT attempt to fix any issues\n- Do NOT open any Java source files\n- Only organize the raw JSON data into group files"
+        },
+        {
+          "role": "user",
+          "content": "Group the following raw SonarQube issues:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1536
+
+tests:
+  - description: "Groups issues from two different files into separate group files"
+    vars:
+      ARGUMENTS: |
+        sonar_raw_issues.json content (simplified):
+        {
+          "issues": [
+            {"component": "com.example:app:src/main/java/UserService.java", "rule": "java:S1192", "line": 10, "message": "Duplicate literal"},
+            {"component": "com.example:app:src/main/java/UserService.java", "rule": "java:S106", "line": 25, "message": "System.out usage"},
+            {"component": "com.example:app:src/main/java/UserService.java", "rule": "java:S2259", "line": 38, "message": "Nullable dereference"},
+            {"component": "com.example:app:src/main/java/OrderService.java", "rule": "java:S1135", "line": 15, "message": "TODO comment"},
+            {"component": "com.example:app:src/main/java/OrderService.java", "rule": "java:S2095", "line": 30, "message": "Use try-with-resources"}
+          ],
+          "paging": {"total": 5}
+        }
+        Project: com.example:app, Branch: main
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must produce: 1. issue_group_UserService.md with 3 issues
+          in ascending line order (10, 25, 38) 2. issue_group_OrderService.md
+          with 2 issues in ascending line order (15, 30) 3. issue_manifest.md
+          listing both group files with Status=Pending and correct issue counts
+          The response must NOT attempt to fix any issues or open Java source
+          files.
+      - type: contains-all
+        value:
+          - issue_group_UserService
+          - issue_group_OrderService
+          - issue_manifest
+          - Pending
+          - java:S1192
+
+  - description: "Splits a file with more than 10 issues into sub-groups"
+    vars:
+      ARGUMENTS: |
+        sonar_raw_issues.json: One file (BigService.java) with 13 issues on lines 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65.
+        All rule: java:S1192
+        Project: com.example:app, Branch: feature/cleanup
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must split BigService.java into two groups: -
+          issue_group_BigService_a.md with the first 10 issues -
+          issue_group_BigService_b.md with the remaining 3 issues The manifest
+          must list both sub-groups as separate rows with Pending status.
+      - type: contains-any
+        value:
+          - BigService_a
+          - BigService_b
+          - issue_group_BigService
+          - split
+          - sub-group

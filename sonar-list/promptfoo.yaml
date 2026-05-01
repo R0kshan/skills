@@ -1,0 +1,66 @@
+description: "Tests for sonar-list — validates the skill fetches all SonarQube
+  issues and writes them to a raw JSON file"
+
+prompts:
+  - label: sonar-list-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to fetch ALL open SonarQube issues for the current project and branch.\n\nSteps:\n1. Run 'git branch --show-current' to get the current branch name\n2. Read pom.xml to extract <groupId> and <artifactId> → PROJECT_KEY = 'groupId:artifactId'\n3. Use the SonarQube MCP to fetch ALL open issues for PROJECT_KEY + BRANCH, paging through all results until exhausted\n4. Write raw results to tmp-sonar/sonar_raw_issues.json in the repo root — no analysis, no grouping\n\nHard rules:\n- Do NOT open any Java source files\n- Do NOT group or analyze issues — raw dump only\n- Page through ALL results, never stop at page 1\n- Write ALL issues to sonar_raw_issues.json"
+        },
+        {
+          "role": "user",
+          "content": "Fetch all SonarQube issues for the project. Context:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1024
+
+tests:
+  - description: "Describes the correct workflow: read branch, read pom.xml, fetch
+      all pages"
+    vars:
+      ARGUMENTS: |
+        Current git branch: feature/sonar-cleanup
+        pom.xml contains: <groupId>com.example</groupId> <artifactId>my-service</artifactId>
+        SonarQube has 250 issues across 3 pages (100 per page).
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must describe: 1. Getting the current branch
+          (feature/sonar-cleanup) 2. Extracting the project key as
+          'com.example:my-service' from pom.xml 3. Fetching all 3 pages of
+          issues from SonarQube (paging through all results) 4. Writing the raw
+          result to tmp-sonar/sonar_raw_issues.json without any analysis The
+          response must NOT attempt to open Java files or group/fix issues.
+      - type: contains-all
+        value:
+          - com.example:my-service
+          - sonar_raw_issues.json
+          - page
+          - tmp-sonar
+
+  - description: "Handles paging correctly to retrieve all issues"
+    vars:
+      ARGUMENTS: |
+        Project: org.company:backend-api
+        Branch: main
+        SonarQube total: 500 issues, page size: 100 (5 pages)
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must demonstrate awareness of paging: it must fetch page
+          1 through page 5 (or until no more results) to retrieve all 500
+          issues, NOT stop after page 1. All issues must be written to
+          sonar_raw_issues.json without analysis or grouping.
+      - type: contains-all
+        value:
+          - sonar_raw_issues.json
+          - org.company:backend-api
+          - page
+          - all
