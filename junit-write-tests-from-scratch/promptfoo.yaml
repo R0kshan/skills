@@ -1,0 +1,70 @@
+description: "Tests for junit-write-tests-from-scratch — validates the skill
+  orchestrates the full test class generation pipeline"
+
+prompts:
+  - label: junit-write-tests-from-scratch-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to orchestrate the full JUnit test class generation for a given class.\n\nSteps:\n1. Initialize the test class using /tmp-junit/<ClassName>-test-spec-init.md\n2. For each /tmp-junit/<ClassName>-test-spec-<number>.md file:\n   a. Read the spec file\n   b. Apply the 'junit-write-single-test-from-scratch' skill to write the test\n3. Verify the total number of tests matches the number of spec files\n4. Run /compact to free context\n5. Use 'junit-fix-failing-tests' skill to ensure all tests pass\n6. Use 'junit-verify-code-coverage' skill to ensure at least 90% coverage\n\nHard rules:\n- Only write code to the <ClassName>Test class\n- The tested method MUST ALWAYS be called in the 'when' section\n- Tests must be COMPILABLE (without deleting existing tests or assertions)\n- All tests must PASS (without deleting existing tests or assertions)\n- For every spec file there must be a corresponding unit test"
+        },
+        {
+          "role": "user",
+          "content": "Write all tests from scratch for: {{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1024
+
+tests:
+  - description: "Describes the full orchestration pipeline for a class"
+    vars:
+      ARGUMENTS: |
+        InventoryService — has 3 spec files in tmp-junit/:
+        - tmp-junit/InventoryService-test-spec-1.md (checkStock happy path)
+        - tmp-junit/InventoryService-test-spec-2.md (checkStock sad path: out of stock)
+        - tmp-junit/InventoryService-test-spec-3.md (reserveItem happy path)
+        - tmp-junit/InventoryService-test-spec-init.md (mocks: InventoryRepository, StockAlertService)
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must describe the correct pipeline: 1. Initialize the
+          test class from the init spec 2. Implement all 3 tests from spec files
+          1, 2, 3 3. Verify there are exactly 3 test methods (matching spec file
+          count) 4. Fix any failing tests using the fix-failing-tests skill 5.
+          Verify coverage reaches at least 90% The response must NOT skip any
+          spec file and must NOT delete tests.
+      - type: contains-all
+        value:
+          - InventoryService
+          - spec-1
+          - spec-2
+          - spec-3
+          - coverage
+          - 90%
+
+  - description: "Detects mismatch between spec files and implemented tests"
+    vars:
+      ARGUMENTS: |
+        CacheService — 4 spec files exist but only 2 tests have been written.
+        Spec files: cache-spec-1.md, cache-spec-2.md, cache-spec-3.md, cache-spec-4.md
+        Current test class has: test1(), test2() only.
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must identify that 2 tests are missing (only 2 of 4 specs
+          are implemented) and must describe implementing the missing tests from
+          spec files 3 and 4 without deleting the existing 2 tests.
+      - type: contains-any
+        value:
+          - missing
+          - manquant
+          - spec-3
+          - spec-4
+          - 4 tests
+          - implement

@@ -1,0 +1,72 @@
+description: "Tests for sonar-fix-all — validates the skill processes all
+  pending groups from issue_manifest.md sequentially"
+
+prompts:
+  - label: sonar-fix-all-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer managing SonarQube issue remediation. Your task is to fix all SonarQube issue groups sequentially by reading issue_manifest.md.\n\nSteps:\n1. Read tmp-sonar/issue_manifest.md — if missing, halt and tell user to run /sonar-list then /sonar-group first\n2. For each group row where Status is Pending, in order:\n   a. Invoke /sonar-fix-one <group_file>\n   b. Invoke /sonar-manifest-update <group_file>\n   c. Use /compact before moving to the next group\n3. When all groups are done, report a summary\n\nHard rules:\n- Process ONE group at a time — never load two Java files simultaneously\n- /compact between EVERY group — this is mandatory\n- Never skip a pending group silently"
+        },
+        {
+          "role": "user",
+          "content": "Fix all pending SonarQube issues. Context:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1024
+
+tests:
+  - description: "Processes pending groups sequentially from manifest"
+    vars:
+      ARGUMENTS: |
+        issue_manifest.md content:
+        # SonarQube Issue Manifest
+        - **Project**: com.example:my-app
+        - **Branch**: main
+        - **Total issues**: 12
+        - **Total groups**: 3
+
+        | Group File | Target Java File | Issue Count | Status |
+        |------------|-----------------|-------------|--------|
+        | issue_group_UserService.md | src/main/java/UserService.java | 4 | Pending |
+        | issue_group_OrderService.md | src/main/java/OrderService.java | 5 | Pending |
+        | issue_group_PaymentService.md | src/main/java/PaymentService.java | 3 | Done |
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must process only the 2 Pending groups (UserService and
+          OrderService), skipping the Done group (PaymentService). For each
+          pending group it must: invoke sonar-fix-one with the group file, then
+          sonar-manifest-update, then /compact. PaymentService group must be
+          skipped. A summary at the end must be provided.
+      - type: contains-all
+        value:
+          - issue_group_UserService
+          - issue_group_OrderService
+          - compact
+          - sonar-manifest-update
+
+  - description: "Halts when manifest is missing"
+    vars:
+      ARGUMENTS: |
+        tmp-sonar/ directory is empty. No issue_manifest.md file exists.
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must halt immediately and instruct the user to run
+          /sonar-list first and then /sonar-group before running /sonar-fix-all.
+          It must NOT attempt to proceed or guess file locations.
+      - type: contains-any
+        value:
+          - sonar-list
+          - sonar-group
+          - missing
+          - manquant
+          - halt
+          - arrêt

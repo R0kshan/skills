@@ -1,0 +1,46 @@
+name: Skill Tests – junit-plan-tests-from-scratch
+on:
+    push:
+        branches: [ "main", "feature/*", "fix/*" ]
+        paths:
+            - "junit-plan-tests-from-scratch/SKILL.md"
+            - "junit-plan-tests-from-scratch/promptfoo.yaml"
+            - ".github/workflows/skill-tests-junit.yml"
+    pull_request:
+        paths:
+            - "junit-plan-tests-from-scratch/SKILL.md"
+            - "junit-plan-tests-from-scratch/promptfoo.yaml"
+            - ".github/workflows/skill-tests-junit.yml"
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+
+    test:
+        name: "Test / junit-plan-tests-from-scratch"
+        runs-on: ubuntu-latest
+        permissions:
+            pull-requests: write
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up promptfoo cache
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/promptfoo
+                  key: ${{ runner.os }}-promptfoo-v1
+                  restore-keys: |
+                      ${{ runner.os }}-promptfoo-
+
+            - name: Run promptfoo evaluation
+              uses: promptfoo/promptfoo-action@v1
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  config: "junit-plan-tests-from-scratch/promptfoo.yaml"
+                  prompts: "junit-plan-tests-from-scratch/**/*.json"
+                  cache-path: ~/.cache/promptfoo

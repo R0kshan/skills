@@ -1,0 +1,86 @@
+description: "Tests for sonar-fix-one-group — validates the skill fixes all
+  SonarQube issues in a single group file"
+
+prompts:
+  - label: sonar-fix-one-group-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer fixing SonarQube issues. Your task is to fix all issues listed in a single group file.\n\nSteps:\n1. Read the group file tmp-sonar/issue_group_<ClassName>.md — identify the target Java file path and the list of issues\n2. Read the full content of the target Java file\n3. For each issue, in ascending line order:\n   - Locate the line\n   - Apply the fix that satisfies the rule\n   - Document the before/after change in the group file\n4. Write the fixed Java file in a single pass (never leave it partially fixed)\n5. Verify the code compiles with: mvn compile -s ${MAVEN_SETTINGS}\n6. Update the group file with status column (✅ Fixed or ⚠️ Skipped) and Fix Details\n7. Update the manifest using /sonar-manifest-update\n8. Stop here — do NOT move on to the next group\n\nCommon fixes:\n- java:S2259: Add null check before dereference\n- java:S1192: Extract repeated string to a constant\n- java:S1135: Remove or resolve TODO comment\n- java:S2095: Use try-with-resources\n- java:S106: Replace System.out with logger\n- java:S1118: Add private constructor\n\nHard rules:\n- Never modify files outside the target Java file\n- Never comment code out\n- Fixed code MUST be COMPILABLE and must NOT introduce more issues\n- Skip any fix requiring changes across multiple files — document why\n- If uncertain, skip and document — never guess"
+        },
+        {
+          "role": "user",
+          "content": "Fix all SonarQube issues in the following group:\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1536
+
+tests:
+  - description: "Fixes a S1192 repeated string literal and a S106 System.out usage"
+    vars:
+      ARGUMENTS: |
+        # Issue Group UserService: src/main/java/com/example/UserService.java
+
+        ## Target Class
+        `src/main/java/com/example/UserService.java`
+
+        ## Issues
+        | # | Rule | Line | Message |
+        |---|------|------|---------|
+        | 1 | java:S1192 | 15 | Define a constant instead of duplicating this literal "USER_NOT_FOUND" 4 times |
+        | 2 | java:S106  | 42 | Replace this usage of System.out by a logger |
+
+        Current code excerpt:
+        - Line 15: if (user == null) throw new RuntimeException("USER_NOT_FOUND");
+        - Line 28: throw new RuntimeException("USER_NOT_FOUND");
+        - Line 35: return "USER_NOT_FOUND";
+        - Line 42: System.out.println("Processing user: " + userId);
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must fix both issues: 1. Extract "USER_NOT_FOUND" into a
+          private static final String constant 2. Replace System.out.println
+          with a logger call (e.g., log.info or logger.info) The response must
+          document before/after for each fix and update the group file with ✅
+          Fixed status. It must then stop without touching other files.
+      - type: contains-all
+        value:
+          - static final
+          - USER_NOT_FOUND
+          - logger
+          - Fixed
+          - sonar-manifest-update
+
+  - description: "Skips a complex refactor fix that spans multiple files"
+    vars:
+      ARGUMENTS: |
+        # Issue Group ComplexService: src/main/java/com/example/ComplexService.java
+
+        ## Target Class
+        `src/main/java/com/example/ComplexService.java`
+
+        ## Issues
+        | # | Rule | Line | Message |
+        |---|------|------|---------|
+        | 1 | java:S3776 | 55 | Refactor this method to reduce its Cognitive Complexity from 25 to the 15 allowed |
+        | 2 | java:S2259 | 72 | A "NullPointerException" could be thrown; "result" is nullable here |
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must skip the S3776 complexity fix (it requires major
+          refactoring out of scope) and document why it was skipped. It must fix
+          the S2259 null pointer issue by adding a null check before line 72.
+          Each fix must be documented with ⚠️ Skipped or ✅ Fixed status.
+      - type: contains-all
+        value:
+          - S3776
+          - Skipped
+          - S2259
+          - null
+          - check

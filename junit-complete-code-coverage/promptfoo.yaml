@@ -1,0 +1,101 @@
+description: "Tests for junit-complete-code-coverage — validates the skill adds
+  tests to reach 90% coverage"
+
+prompts:
+  - label: junit-complete-code-coverage-prompt
+    raw: |
+      [
+        {
+          "role": "system",
+          "content": "You are an expert Java developer. Your task is to complete code coverage for an existing JUnit test class by writing new tests or completing existing ones.\n\nYour goal is to reach at least 90% line, method, and branch coverage.\n\nHard rules:\n- Only write code to the test class, NEVER modify the tested class\n- All public and protected methods must be tested\n- Private methods are tested only through public method calls\n- All branches, lines and statements must be covered\n- Assertions must ALWAYS be present to verify outputs\n- Tests must be COMPILABLE and all must PASS\n- Use Mocking and Stubs with available dependencies\n- Tests must be Small and Focused (one behavior per test)\n- Tests must be Deterministic\n- Use descriptive test names with given_when_then convention\n- Test Edge Cases and Error Conditions\n- Follow the AAA Pattern (Arrange, Act, Assert)\n- Comments must be written in FRENCH\n- No Sonar warnings"
+        },
+        {
+          "role": "user",
+          "content": "Complete the test coverage for the following test class (current coverage is below 90%):\n\n{{ARGUMENTS}}"
+        }
+      ]
+
+providers:
+  - id: ollama:qwen3.5:122b
+    config:
+      temperature: 0
+      max_tokens: 1536
+
+tests:
+  - description: "Adds missing tests for uncovered branches"
+    vars:
+      ARGUMENTS: |
+        // OrderServiceTest.java — current coverage: 45% lines, 40% branches, 50% methods
+        // Tested class has: createOrder(), cancelOrder(id), findOrder(id), updateStatus(id, status)
+        // Only createOrder() happy path is tested so far.
+
+        @ExtendWith(MockitoExtension.class)
+        class OrderServiceTest {
+            @Mock OrderRepository repo;
+            @InjectMocks OrderService service;
+
+            @Test
+            void createOrder_whenValidData_returnsOrder() {
+                // Given
+                Order order = new Order(null, "PENDING");
+                Order saved = new Order(1L, "PENDING");
+                when(repo.save(order)).thenReturn(saved);
+                // When
+                Order result = service.createOrder(order);
+                // Then
+                assertThat(result.getId()).isEqualTo(1L);
+            }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must identify the missing test coverage and propose or
+          write new test methods for: cancelOrder, findOrder, and updateStatus,
+          including both happy and sad paths (e.g. not-found exceptions). Each
+          new test must follow the AAA pattern and use descriptive names.
+      - type: contains-any
+        value:
+          - cancelOrder
+          - findOrder
+          - updateStatus
+          - annuler
+          - trouver
+          - statut
+
+  - description: "Identifies that coverage is already sufficient when above 90%"
+    vars:
+      ARGUMENTS: |
+        // PaymentServiceTest.java — current coverage: 95% lines, 92% branches, 100% methods
+        // All methods of PaymentService are covered: processPayment(), refund(), getStatus()
+
+        @ExtendWith(MockitoExtension.class)
+        class PaymentServiceTest {
+            @Mock PaymentGateway gateway;
+            @InjectMocks PaymentService service;
+
+            @Test
+            void processPayment_whenValidAmount_returnsConfirmation() { /* ... */ }
+
+            @Test
+            void processPayment_whenNegativeAmount_throwsException() { /* ... */ }
+
+            @Test
+            void refund_whenPaymentExists_returnsRefund() { /* ... */ }
+
+            @Test
+            void getStatus_whenPaymentExists_returnsStatus() { /* ... */ }
+        }
+    assert:
+      - type: llm-rubric
+        value: >
+          The response must recognize that coverage is already above 90% and
+          confirm no additional tests are required. It should stop at the
+          verification step without adding unnecessary tests.
+      - type: contains-any
+        value:
+          - sufficient
+          - already
+          - 90%
+          - couverture
+          - atteinte
+          - stop

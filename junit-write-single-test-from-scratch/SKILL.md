@@ -27,5 +27,4 @@ Initialize and write the unit test specified in  $ARGUMENTS.
     - Arrange: Set up the test environment and inputs.
     - Act: Execute the function or method being tested.
     - Assert: Verify the expected outcome.
-- Code and comments must be written in FRENCH
 - The tests musn't generate Sonar warnings

@@ -1,0 +1,176 @@
+description: "Tests for junit-plan-tests-from-scratch — validates the skill
+  generates a JUnit test plan with proper specifications"
+
+prompts:
+  - label: junit-plan-tests-from-scratch-prompt
+  - file://SKILL.md
+
+providers:
+  - id: github:anthropic/claude-4-sonnet
+    config:
+      temperature: 0
+  - id: github:meta/llama-3.3-70b-instruct
+    config:
+      temperature: 0
+
+tests:
+  - description: "Generates a test plan for a simple service class"
+    vars:
+      ARGUMENTS: |
+        // DiscountService.java
+        public class DiscountService {
+            private static final double MAX_DISCOUNT = 0.50;
+            private CustomerRepository customerRepo;
+
+            public double calculateDiscount(Long customerId, double price) {
+                Customer customer = customerRepo.findById(customerId)
+                    .orElseThrow(() -> new CustomerNotFoundException(customerId));
+                double discount = customer.getLoyaltyYears() * 0.05;
+                return Math.min(discount, MAX_DISCOUNT) * price;
+            }
+
+            public boolean isEligible(Long customerId) {
+                return customerRepo.findById(customerId)
+                    .map(c -> c.getLoyaltyYears() > 0)
+                    .orElse(false);
+            }
+        }
+    assert:
+      # Template structure is respected
+      - type: contains-all
+        value:
+          - "JUnit Test Specification for class"
+          - "Test class :"
+          - "Tested method :"
+          - "Method return type :"
+          - "Method modified parameters :"
+          - "Possible exceptions :"
+          - "Type :"
+          - "Purpose:"
+          - "Name of the test method :"
+          - "Setup (given) :"
+          - "Execution (when) :"
+          - "Expected (then) :"
+
+      # Both public methods are covered
+      - type: contains-all
+        value:
+          - "calculateDiscount"
+          - "isEligible"
+
+      # Happy and sad paths are present
+      - type: contains-all
+        value:
+          - "Happy"
+          - "Sad"
+
+      # given_when_then naming convention is used
+      - type: contains
+        value: "given_"
+
+      # CustomerNotFoundException is covered (sad path)
+      - type: contains
+        value: "CustomerNotFoundException"
+
+      # Discount cap edge case is covered
+      - type: contains
+        value: "MAX_DISCOUNT"
+
+      # No code is written (hard rule)
+      - type: not-contains-any
+        value:
+          - "public void test"
+          - "public void given"
+          - "@Test"
+          - "Mockito.mock("
+          - "assertEquals("
+          - "assertThrows("
+
+      # Init spec file is produced
+      - type: llm-rubric
+        value: >
+          The response must include an initialization specification section
+          following the template, listing mocks or stubs for CustomerRepository.
+          It must mention "Initialisation" or "Initialization" and list the
+          required mocks for the class dependencies. No Java code must appear
+          anywhere in the output.
+
+      # Quality rubric
+      - type: llm-rubric
+        value: >
+          The response must produce separate test specifications for
+          calculateDiscount and isEligible. For calculateDiscount it must cover:
+          a happy path (valid customer, correct discount returned), a sad path
+          (customer not found, CustomerNotFoundException thrown), and an edge
+          case (discount capped at MAX_DISCOUNT = 0.50). For isEligible it must
+          cover: a happy path (customer exists with loyaltyYears > 0, returns
+          true), a sad path (customer not found, returns false), and an edge
+          case (customer exists with loyaltyYears = 0, returns false). Each spec
+          must use given_when_then naming. No code must appear.
+
+  - description: "Produces an initialization spec with required mocks"
+    vars:
+      ARGUMENTS: |
+        // ReportService.java
+        public class ReportService {
+            private ReportRepository repo;
+            private PdfGenerator pdfGenerator;
+
+            public byte[] generateReport(String type, LocalDate from, LocalDate to) {
+                List<Record> records = repo.findByTypeAndDateRange(type, from, to);
+                if (records.isEmpty()) throw new NoDataException("No records found");
+                return pdfGenerator.generate(records, type);
+            }
+        }
+    assert:
+      # Template structure is respected
+      - type: contains-all
+        value:
+          - "JUnit Test Specification for class"
+          - "Test class :"
+          - "Tested method :"
+          - "Method return type :"
+          - "Setup (given) :"
+          - "Execution (when) :"
+          - "Expected (then) :"
+
+      # Init spec template is respected
+      - type: contains-all
+        value:
+          - "JUnit Test Initialization"
+          - "Mocks :"
+          - "ReportRepository"
+          - "PdfGenerator"
+
+      # Sad path with exception is covered
+      - type: contains-all
+        value:
+          - "NoDataException"
+          - "Sad"
+
+      # Happy path is covered
+      - type: contains
+        value: "Happy"
+
+      # given_when_then naming convention is used
+      - type: contains
+        value: "given_"
+
+      # No code is written (hard rule)
+      - type: not-contains-any
+        value:
+          - "@Test"
+          - "Mockito.mock("
+          - "assertEquals("
+          - "assertThrows("
+          - "public void"
+
+      # Quality rubric
+      - type: llm-rubric
+        value: >
+          The response must include an initialization specification listing
+          mocks for ReportRepository and PdfGenerator, with sample LocalDate
+          values for from/to and a sample record list. It must produce at least
+          one happy path spec (records found, PDF byte array returned) and one
+          sad path spec (empty records list, NoDataException thrown). The
+          generateReport method must not be mocked. No Java code must appear.
