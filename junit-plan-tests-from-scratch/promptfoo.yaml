@@ -3,23 +3,15 @@ description: "Tests for junit-plan-tests-from-scratch — validates the skill
 
 prompts:
   - label: junit-plan-tests-from-scratch-prompt
-    raw: |
-      [
-        {
-          "role": "system",
-          "content": "You are an expert Java developer. Your task is to generate a JUnit test plan (in natural language, NO code) for a given Java class that has no existing test class.\n\nFor each public and protected method, write test specifications covering:\n- Happy path tests (one per happy path)\n- Sad path tests (one per sad path)\n- Edge cases and error conditions\n\nEach test specification must follow this template:\n\n# JUnit Test Specification for class <ClassName>.java\n**Test class:** <ClassName>Test.java\n**Tested method:** <method name>\n**Method return type:** <return type>\n**Method modified parameters:** <parameters modified>\n**Possible exceptions:** <list of possible exceptions>\n**Type:** <Happy or Sad path> test\n**Purpose:** <purpose>\n**Name of the test method:** <given_when_then>\n**Setup (given):** <list values, mocks or stubs required>\n**Execution (when):** <what must be done>\n**Expected (then):** <actual results to verify or exceptions thrown>\n\nAlso produce an initialization spec file listing all required mocks, stubs, and variables.\n\nHard rules:\n- Do NOT write any code\n- Do NOT create or modify any Java class\n- Every public or protected method must be tested\n- Private methods must NOT be tested directly\n- Return or modified values must always be verified"
-        },
-        {
-          "role": "user",
-          "content": "Generate a test plan for:\n\n{{ARGUMENTS}}"
-        }
-      ]
+  - file://SKILL.md
 
 providers:
-  - id: ollama:qwen3.5:122b
+  - id: github:anthropic/claude-4-sonnet
     config:
       temperature: 0
-      max_tokens: 2048
+  - id: github:meta/llama-3.3-70b-instruct
+    config:
+      temperature: 0
 
 tests:
   - description: "Generates a test plan for a simple service class"
@@ -44,23 +36,77 @@ tests:
             }
         }
     assert:
-      - type: llm-rubric
-        value: >
-          The response must contain natural-language test specifications (no
-          code) for both calculateDiscount and isEligible methods. Each
-          specification must include: happy path (valid customer, correct
-          discount), sad path (customer not found exception), and edge case
-          (discount capped at MAX_DISCOUNT). Each spec must follow the template
-          with given/when/then sections and a given_when_then method name.
+      # Template structure is respected
       - type: contains-all
         value:
-          - calculateDiscount
-          - isEligible
-          - given_when
-          - CustomerNotFoundException
-          - Given
-          - When
-          - Then
+          - "JUnit Test Specification for class"
+          - "Test class :"
+          - "Tested method :"
+          - "Method return type :"
+          - "Method modified parameters :"
+          - "Possible exceptions :"
+          - "Type :"
+          - "Purpose:"
+          - "Name of the test method :"
+          - "Setup (given) :"
+          - "Execution (when) :"
+          - "Expected (then) :"
+
+      # Both public methods are covered
+      - type: contains-all
+        value:
+          - "calculateDiscount"
+          - "isEligible"
+
+      # Happy and sad paths are present
+      - type: contains-all
+        value:
+          - "Happy"
+          - "Sad"
+
+      # given_when_then naming convention is used
+      - type: contains
+        value: "given_"
+
+      # CustomerNotFoundException is covered (sad path)
+      - type: contains
+        value: "CustomerNotFoundException"
+
+      # Discount cap edge case is covered
+      - type: contains
+        value: "MAX_DISCOUNT"
+
+      # No code is written (hard rule)
+      - type: not-contains-any
+        value:
+          - "public void test"
+          - "public void given"
+          - "@Test"
+          - "Mockito.mock("
+          - "assertEquals("
+          - "assertThrows("
+
+      # Init spec file is produced
+      - type: llm-rubric
+        value: >
+          The response must include an initialization specification section
+          following the template, listing mocks or stubs for CustomerRepository.
+          It must mention "Initialisation" or "Initialization" and list the
+          required mocks for the class dependencies. No Java code must appear
+          anywhere in the output.
+
+      # Quality rubric
+      - type: llm-rubric
+        value: >
+          The response must produce separate test specifications for
+          calculateDiscount and isEligible. For calculateDiscount it must cover:
+          a happy path (valid customer, correct discount returned), a sad path
+          (customer not found, CustomerNotFoundException thrown), and an edge
+          case (discount capped at MAX_DISCOUNT = 0.50). For isEligible it must
+          cover: a happy path (customer exists with loyaltyYears > 0, returns
+          true), a sad path (customer not found, returns false), and an edge
+          case (customer exists with loyaltyYears = 0, returns false). Each spec
+          must use given_when_then naming. No code must appear.
 
   - description: "Produces an initialization spec with required mocks"
     vars:
@@ -77,18 +123,54 @@ tests:
             }
         }
     assert:
-      - type: llm-rubric
-        value: >
-          The response must include an initialization specification file
-          listing: - Mock for ReportRepository - Mock for PdfGenerator - Sample
-          LocalDate values for from/to - Sample record list It must also produce
-          at least one happy path spec (records found, PDF returned) and one sad
-          path spec (empty records, NoDataException thrown). No Java code must
-          appear in the output.
+      # Template structure is respected
       - type: contains-all
         value:
-          - ReportRepository
-          - PdfGenerator
-          - NoDataException
-          - Mock
-          - mock
+          - "JUnit Test Specification for class"
+          - "Test class :"
+          - "Tested method :"
+          - "Method return type :"
+          - "Setup (given) :"
+          - "Execution (when) :"
+          - "Expected (then) :"
+
+      # Init spec template is respected
+      - type: contains-all
+        value:
+          - "JUnit Test Initialization"
+          - "Mocks :"
+          - "ReportRepository"
+          - "PdfGenerator"
+
+      # Sad path with exception is covered
+      - type: contains-all
+        value:
+          - "NoDataException"
+          - "Sad"
+
+      # Happy path is covered
+      - type: contains
+        value: "Happy"
+
+      # given_when_then naming convention is used
+      - type: contains
+        value: "given_"
+
+      # No code is written (hard rule)
+      - type: not-contains-any
+        value:
+          - "@Test"
+          - "Mockito.mock("
+          - "assertEquals("
+          - "assertThrows("
+          - "public void"
+
+      # Quality rubric
+      - type: llm-rubric
+        value: >
+          The response must include an initialization specification listing
+          mocks for ReportRepository and PdfGenerator, with sample LocalDate
+          values for from/to and a sample record list. It must produce at least
+          one happy path spec (records found, PDF byte array returned) and one
+          sad path spec (empty records list, NoDataException thrown). The
+          generateReport method must not be mocked. No Java code must appear.
